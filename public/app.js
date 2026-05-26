@@ -2,6 +2,15 @@
  * Core Front-End Web Application Logic
  * Client-Side Router, Dynamic Scheduling Grid, Live SQL Audit Logger,
  * and Dual-Mode Execution Engine (Node.js API vs. LocalStorage SQL Simulator).
+ *
+ * FIXES APPLIED:
+ * 1. refreshSchemes() now returns SQL trace so refreshData() can include it in the audit log
+ * 2. populateSchemesDropdown() is called inside refreshSchemes() after allSchemes is set — no more race condition
+ * 3. submitScheme() no longer calls full refreshData() (avoids double-fetch + log overwrite);
+ *    it calls refreshSchemes() directly, then logs only the scheme SQL
+ * 4. resetBookingForm() no longer calls populateSchemesDropdown() directly (refreshSchemes handles it)
+ * 5. Visitor booking form scheme dropdown now always reflects latest DB/LocalStorage state
+ * 6. showSection('booking-section') now calls refreshSchemes() so visitor always sees latest schemes
  */
 
 // Global State
@@ -24,27 +33,26 @@ const timeSlots = [
 
 let allBookings = [];
 let isStandaloneMode = false;
-let apiBaseUrl = ''; // Relative path, same host
-let currentRole = 'visitor'; // 'visitor' or 'admin'
+let apiBaseUrl = '';
+let currentRole = 'visitor';
 let allSchemes = [];
 let visitorMap = null;
 let adminMap = null;
-const estateCoords = [18.9543, 72.8088]; // Malabar Hill, Mumbai, India
+const estateCoords = [18.9543, 72.8088];
 
 // -------------------------------------------------------------
 // Initialization & Startup
 // -------------------------------------------------------------
 document.addEventListener('DOMContentLoaded', () => {
     initDatePickers();
-    initTheme(); // Load saved theme preference
-    initRole();  // Load default role setup
+    initTheme();
+    initRole();
     detectEngineModeAndLoad();
     setupNavigationListeners();
     setupScrollEffects();
-    setupRoleDropdownCloseListener(); // Close dropdown on outside click
+    setupRoleDropdownCloseListener();
 });
 
-// Setup date inputs (restrict range to [tomorrow, tomorrow + 30 days])
 function initDatePickers() {
     const today = new Date();
     const tomorrow = new Date(today);
@@ -72,7 +80,6 @@ function initDatePickers() {
     }
 }
 
-// Check if Express backend is running. If not, auto-switch to LocalStorage SQL Simulator!
 async function detectEngineModeAndLoad() {
     const indicator = document.getElementById('sql-engine-indicator');
 
@@ -85,39 +92,28 @@ async function detectEngineModeAndLoad() {
             indicator.style.background = "rgba(6, 182, 212, 0.15)";
             indicator.style.borderColor = "var(--accent-cyan)";
             indicator.style.color = "var(--accent-cyan)";
-            // Silent connection – no toast
         } else {
             throw new Error("Server returned error status");
         }
     } catch (err) {
-        // Fallback to standalone client-side simulator
         isStandaloneMode = true;
         indicator.textContent = "SQL Simulator (Offline)";
         indicator.style.background = "rgba(236, 72, 153, 0.15)";
         indicator.style.borderColor = "var(--accent-pink)";
         indicator.style.color = "var(--accent-pink)";
 
-        // Initialize mock database in LocalStorage if not exists
         if (!localStorage.getItem('mock_bookings')) {
-            const initialSeed = getMockSeedData();
-            localStorage.setItem('mock_bookings', JSON.stringify(initialSeed));
+            localStorage.setItem('mock_bookings', JSON.stringify(getMockSeedData()));
         }
-
-        // Initialize mock schemes in LocalStorage if not exists
         if (!localStorage.getItem('mock_schemes')) {
-            const initialSchemesSeed = getMockSchemesSeedData();
-            localStorage.setItem('mock_schemes', JSON.stringify(initialSchemesSeed));
+            localStorage.setItem('mock_schemes', JSON.stringify(getMockSchemesSeedData()));
         }
-        // Silent fallback – no toast
     }
 
-    // Load initial data
-    refreshData();
-    // Render time slots for tomorrow
+    await refreshData();
     renderTimeSlots('booking_date', 'slots-container', 'selected_time');
 }
 
-// Seed mock records for simulator
 function getMockSeedData() {
     return [
         {
@@ -182,18 +178,15 @@ function setupNavigationListeners() {
 }
 
 function showSection(sectionId) {
-    // Prevent showing admin-only sections if visitor
     if (currentRole === 'visitor' && (sectionId === 'dashboard-section' || sectionId === 'admin-schemes-section' || sectionId === 'troubleshoot-section')) {
         sectionId = 'hero-section';
     }
-    // Prevent admin from accessing the booking section
     if (currentRole === 'admin' && sectionId === 'booking-section') {
         sectionId = 'dashboard-section';
     }
 
     document.querySelectorAll('.app-section').forEach(sec => {
         sec.classList.remove('active');
-        // Ensure role-restricted app-sections display appropriately
         if (sec.classList.contains('admin-only') && currentRole !== 'admin') {
             sec.style.display = 'none';
         } else if (sec.classList.contains('visitor-only') && currentRole !== 'visitor') {
@@ -209,7 +202,6 @@ function showSection(sectionId) {
         activeSec.style.display = 'block';
     }
 
-    // Highlight nav link
     document.querySelectorAll('.nav-link').forEach(link => {
         link.classList.remove('active');
         if (link.getAttribute('data-target') === sectionId) {
@@ -217,36 +209,31 @@ function showSection(sectionId) {
         }
     });
 
-    // Custom actions when showing dashboard
     if (sectionId === 'dashboard-section') {
         refreshData();
     }
 
-    // Initialize or resize maps based on active section
+    // FIX: Refresh schemes when visitor navigates to booking section
+    // so the dropdown always contains the latest schemes added by admin
+    if (sectionId === 'booking-section') {
+        refreshSchemes();
+    }
+
     if (sectionId === 'location-section') {
         setTimeout(() => {
             initVisitorMap();
-            if (visitorMap) {
-                visitorMap.invalidateSize();
-            }
+            if (visitorMap) visitorMap.invalidateSize();
         }, 100);
     } else if (sectionId === 'dashboard-section') {
         setTimeout(() => {
             initAdminMap();
-            if (adminMap) {
-                adminMap.invalidateSize();
-            }
+            if (adminMap) adminMap.invalidateSize();
         }, 100);
     } else if (sectionId === 'troubleshoot-section') {
-        // Auto-run diagnostic when the troubleshoot tab opens
         setTimeout(() => runTroubleshootDiagnostic(), 200);
     }
 
-    // Auto-scroll to view
-    window.scrollTo({
-        top: 0,
-        behavior: 'smooth'
-    });
+    window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 function setupScrollEffects() {
@@ -282,7 +269,6 @@ function renderTimeSlots(dateInputId, containerId, hiddenInputId) {
     container.innerHTML = '';
     hiddenInput.value = '';
 
-    // Check which slots are already booked on this day
     const bookedTimes = allBookings
         .filter(b => b.booking_date === dateVal && b.status !== 'Cancelled')
         .map(b => b.booking_time);
@@ -299,11 +285,9 @@ function renderTimeSlots(dateInputId, containerId, hiddenInputId) {
         } else {
             slotEl.innerHTML = `<i class="fa-solid fa-clock"></i> ${slot}`;
             slotEl.addEventListener('click', () => {
-                // Remove selected classes
                 container.querySelectorAll('.time-slot').forEach(el => el.classList.remove('selected'));
                 slotEl.classList.add('selected');
                 hiddenInput.value = slot;
-
                 if (hiddenInputId === 'selected_time') {
                     bookingData.booking_time = slot;
                 }
@@ -318,7 +302,6 @@ function renderTimeSlots(dateInputId, containerId, hiddenInputId) {
 // Multi-Step Form Logic
 // -------------------------------------------------------------
 function nextStep(step) {
-    // If transitioning to Step 2, validate Step 1 fields
     if (step === 2) {
         bookingData.visitor_name = document.getElementById('visitor_name').value.trim();
         bookingData.visitor_email = document.getElementById('visitor_email').value.trim();
@@ -327,11 +310,8 @@ function nextStep(step) {
         bookingData.scheme_name = document.getElementById('booking_scheme').value;
     }
 
-    // If transitioning to Step 3, confirm Date & Time chosen
     if (step === 3) {
         bookingData.special_requests = document.getElementById('special_requests').value.trim();
-
-        // Populate Summary Page details
         document.getElementById('sum-name').textContent = bookingData.visitor_name;
         document.getElementById('sum-count').textContent = bookingData.visitor_count;
         document.getElementById('sum-email').textContent = bookingData.visitor_email;
@@ -360,15 +340,13 @@ function validateStep2AndContinue() {
 }
 
 function updateStepUI() {
-    // Hide all steps
     document.querySelectorAll('.booking-step').forEach(step => {
         step.classList.remove('active');
     });
 
-    // Show current step
-    document.getElementById(`booking-step-${currentStep}`).classList.add('active');
+    const activeStepEl = document.getElementById(`booking-step-${currentStep}`);
+    if (activeStepEl) activeStepEl.classList.add('active');
 
-    // Update dots styling
     for (let i = 1; i <= 3; i++) {
         const dot = document.getElementById(`step-dot-${i}`);
         const line = document.getElementById(`step-line-${i - 1}`);
@@ -386,7 +364,7 @@ function updateStepUI() {
 }
 
 // -------------------------------------------------------------
-// Core Database Operation Triggers (Hybrid Client-Server APIs)
+// Core Database Operation Triggers
 // -------------------------------------------------------------
 
 async function refreshData() {
@@ -395,11 +373,10 @@ async function refreshData() {
         let sqlTrace = '';
         let engineName = '';
 
-        // Refresh schemes in real-time concurrently
-        await refreshSchemes();
+        // FIX: refreshSchemes returns its SQL trace; we append it to the combined audit log
+        const schemesSqlTrace = await refreshSchemes();
 
         if (!isStandaloneMode) {
-            // Server API calls
             const bRes = await fetch('https://your-backend.onrender.com/api/bookings');
             bookingsRes = await bRes.json();
 
@@ -407,13 +384,12 @@ async function refreshData() {
             statsRes = await sRes.json();
 
             allBookings = bookingsRes.data;
-            sqlTrace = bookingsRes.sqlQuery + '\n\n' + statsRes.sqlQuery;
+            // FIX: Combined audit log now includes schemes SQL alongside bookings+stats
+            sqlTrace = bookingsRes.sqlQuery + '\n\n' + statsRes.sqlQuery + '\n\n' + schemesSqlTrace;
             engineName = bookingsRes.engine;
         } else {
-            // Simulated local storage backend calls
             const mockBookings = JSON.parse(localStorage.getItem('mock_bookings') || '[]');
 
-            // Sort simulated records
             mockBookings.sort((a, b) => {
                 if (a.booking_date !== b.booking_date) {
                     return b.booking_date.localeCompare(a.booking_date);
@@ -422,7 +398,6 @@ async function refreshData() {
             });
             allBookings = mockBookings;
 
-            // Generate simulated stat results
             const todayStr = new Date().toISOString().split('T')[0];
             const activeTours = mockBookings.filter(b => b.booking_date >= todayStr && b.status !== 'Cancelled').length;
             const cancelledCount = mockBookings.filter(b => b.status === 'Cancelled').length;
@@ -440,19 +415,17 @@ async function refreshData() {
             sqlTrace = `SELECT * FROM bookings ORDER BY booking_date DESC, booking_time ASC;\n\n` +
                 `SELECT COUNT(*) as totalBookings, SUM(visitor_count) as totalVisitors,\n` +
                 `       SUM(CASE WHEN booking_date >= CAST(GETDATE() AS DATE) AND status != 'Cancelled' THEN 1 ELSE 0 END) as upcomingTours,\n` +
-                `       SUM(CASE WHEN status = 'Cancelled' THEN 1 ELSE 0 END) as cancelledBookings FROM bookings;`;
+                `       SUM(CASE WHEN status = 'Cancelled' THEN 1 ELSE 0 END) as cancelledBookings FROM bookings;\n\n` +
+                schemesSqlTrace;
             engineName = 'Simulated SQL Sandbox (LocalStorage)';
         }
 
-        // Render stats counters
         document.getElementById('stat-total-bookings').textContent = statsRes.stats.totalBookings;
         document.getElementById('stat-total-visitors').textContent = statsRes.stats.totalVisitors;
         document.getElementById('stat-upcoming').textContent = statsRes.stats.upcomingTours;
         document.getElementById('stat-cancelled').textContent = statsRes.stats.cancelledBookings;
 
-        // Render bookings table list
         renderBookingsTable();
-        // Update floating audit console log
         logSqlQuery(sqlTrace, engineName);
 
     } catch (err) {
@@ -475,21 +448,18 @@ async function submitBooking() {
                 body: JSON.stringify(bookingData)
             });
 
-            if (response.status === 409) {
-                throw new Error("This date and time slot is already booked.");
-            }
-            if (!response.ok) {
-                throw new Error("Server submission error");
-            }
+            if (response.status === 409) throw new Error("This date and time slot is already booked.");
+            if (!response.ok) throw new Error("Server submission error");
             result = await response.json();
         } else {
-            // Simulated local storage insertion
             const mockBookings = JSON.parse(localStorage.getItem('mock_bookings') || '[]');
-            const isConflict = mockBookings.some(b => b.booking_date === bookingData.booking_date && b.booking_time === bookingData.booking_time && b.status !== 'Cancelled');
+            const isConflict = mockBookings.some(b =>
+                b.booking_date === bookingData.booking_date &&
+                b.booking_time === bookingData.booking_time &&
+                b.status !== 'Cancelled'
+            );
 
-            if (isConflict) {
-                throw new Error("This date and time slot is already booked.");
-            }
+            if (isConflict) throw new Error("This date and time slot is already booked.");
 
             const nextId = mockBookings.length > 0 ? Math.max(...mockBookings.map(b => b.id)) + 1 : 1;
             const newRecord = {
@@ -502,10 +472,7 @@ async function submitBooking() {
             mockBookings.push(newRecord);
             localStorage.setItem('mock_bookings', JSON.stringify(mockBookings));
 
-            const simulatedSql = `
-INSERT INTO bookings (visitor_name, visitor_email, visitor_phone, booking_date, booking_time, visitor_count, scheme_name, special_requests, status)
-VALUES ('${bookingData.visitor_name}', '${bookingData.visitor_email}', '${bookingData.visitor_phone}', '${bookingData.booking_date}', '${bookingData.booking_time}', ${bookingData.visitor_count}, '${bookingData.scheme_name}', ${bookingData.special_requests ? `'${bookingData.special_requests}'` : 'NULL'}, 'Confirmed');
-            `.trim();
+            const simulatedSql = `INSERT INTO bookings (visitor_name, visitor_email, visitor_phone, booking_date, booking_time, visitor_count, scheme_name, special_requests, status)\nVALUES ('${bookingData.visitor_name}', '${bookingData.visitor_email}', '${bookingData.visitor_phone}', '${bookingData.booking_date}', '${bookingData.booking_time}', ${bookingData.visitor_count}, '${bookingData.scheme_name}', ${bookingData.special_requests ? `'${bookingData.special_requests}'` : 'NULL'}, 'Confirmed');`;
 
             result = {
                 booking: newRecord,
@@ -514,18 +481,13 @@ VALUES ('${bookingData.visitor_name}', '${bookingData.visitor_email}', '${bookin
             };
         }
 
-        // Show Success Page Screen
         document.getElementById('success-date-time').textContent = `${formatDate(bookingData.booking_date)} at ${bookingData.booking_time}`;
-
         currentStep = 'success';
         updateStepUI();
         showToast("Booking Successful", "Viewing tour successfully reserved.", "success");
 
-        // Refresh local cache and audit
         allBookings.push(result.booking);
         refreshData();
-
-        // Proactively expand SQL logger panel to show query
         openSqlConsole();
 
     } catch (err) {
@@ -543,7 +505,6 @@ function openRescheduleModal(id, date, time) {
     const modal = document.getElementById('reschedule-modal');
     document.getElementById('reschedule-booking-id').value = id;
     document.getElementById('reschedule-date').value = date;
-
     modal.classList.add('open');
     renderTimeSlots('reschedule-date', 'reschedule-slots-container', 'reschedule-selected-time');
 }
@@ -575,21 +536,19 @@ async function submitReschedule() {
                 body: JSON.stringify({ booking_date: newDate, booking_time: newTime })
             });
 
-            if (response.status === 409) {
-                throw new Error("The selected new time slot is already booked.");
-            }
-            if (!response.ok) {
-                throw new Error("Failed to reschedule viewing on server.");
-            }
+            if (response.status === 409) throw new Error("The selected new time slot is already booked.");
+            if (!response.ok) throw new Error("Failed to reschedule viewing on server.");
             result = await response.json();
         } else {
-            // Simulated local updates
             const mockBookings = JSON.parse(localStorage.getItem('mock_bookings') || '[]');
-            const isConflict = mockBookings.some(b => b.booking_date === newDate && b.booking_time === newTime && b.id !== parseInt(bookingId) && b.status !== 'Cancelled');
+            const isConflict = mockBookings.some(b =>
+                b.booking_date === newDate &&
+                b.booking_time === newTime &&
+                b.id !== parseInt(bookingId) &&
+                b.status !== 'Cancelled'
+            );
 
-            if (isConflict) {
-                throw new Error("The selected new time slot is already booked.");
-            }
+            if (isConflict) throw new Error("The selected new time slot is already booked.");
 
             const recordIdx = mockBookings.findIndex(b => b.id === parseInt(bookingId));
             if (recordIdx === -1) throw new Error("Booking record not found.");
@@ -597,17 +556,10 @@ async function submitReschedule() {
             mockBookings[recordIdx].booking_date = newDate;
             mockBookings[recordIdx].booking_time = newTime;
             mockBookings[recordIdx].status = 'Rescheduled';
-
             localStorage.setItem('mock_bookings', JSON.stringify(mockBookings));
 
-            const simulatedSql = `
-UPDATE bookings 
-SET booking_date = '${newDate}', booking_time = '${newTime}', status = 'Rescheduled' 
-WHERE id = ${bookingId};
-            `.trim();
-
             result = {
-                sqlQuery: simulatedSql,
+                sqlQuery: `UPDATE bookings\nSET booking_date = '${newDate}', booking_time = '${newTime}', status = 'Rescheduled'\nWHERE id = ${bookingId};`,
                 engine: 'Simulated SQL Sandbox (LocalStorage)'
             };
         }
@@ -629,23 +581,15 @@ WHERE id = ${bookingId};
 // Soft Cancellation Trigger
 // -------------------------------------------------------------
 async function cancelBooking(id, name) {
-    if (!confirm(`Are you sure you want to cancel the viewing tour scheduled for ${name}?`)) {
-        return;
-    }
+    if (!confirm(`Are you sure you want to cancel the viewing tour scheduled for ${name}?`)) return;
 
     try {
         let result;
         if (!isStandaloneMode) {
-            const response = await fetch(`/api/bookings/${id}`, {
-                method: 'DELETE'
-            });
-
-            if (!response.ok) {
-                throw new Error("Server cancellation request failed.");
-            }
+            const response = await fetch(`/api/bookings/${id}`, { method: 'DELETE' });
+            if (!response.ok) throw new Error("Server cancellation request failed.");
             result = await response.json();
         } else {
-            // Simulated cancellation
             const mockBookings = JSON.parse(localStorage.getItem('mock_bookings') || '[]');
             const recordIdx = mockBookings.findIndex(b => b.id === parseInt(id));
             if (recordIdx === -1) throw new Error("Record not found.");
@@ -653,14 +597,8 @@ async function cancelBooking(id, name) {
             mockBookings[recordIdx].status = 'Cancelled';
             localStorage.setItem('mock_bookings', JSON.stringify(mockBookings));
 
-            const simulatedSql = `
-UPDATE bookings 
-SET status = 'Cancelled' 
-WHERE id = ${id};
-            `.trim();
-
             result = {
-                sqlQuery: simulatedSql,
+                sqlQuery: `UPDATE bookings\nSET status = 'Cancelled'\nWHERE id = ${id};`,
                 engine: 'Simulated SQL Sandbox (LocalStorage)'
             };
         }
@@ -698,12 +636,10 @@ function renderBookingsTable(filteredBookings = allBookings) {
     filteredBookings.forEach(booking => {
         const tr = document.createElement('tr');
 
-        // Format status badge
         let badgeClass = 'badge-confirmed';
         if (booking.status === 'Rescheduled') badgeClass = 'badge-rescheduled';
         if (booking.status === 'Cancelled') badgeClass = 'badge-cancelled';
 
-        // Render special requests with fallback
         const requestsStr = booking.special_requests
             ? (booking.special_requests.length > 50 ? booking.special_requests.substring(0, 47) + '...' : booking.special_requests)
             : '<span class="text-muted">None</span>';
@@ -723,17 +659,15 @@ function renderBookingsTable(filteredBookings = allBookings) {
             <td><span class="spec-tag">${booking.visitor_count} Guest/s</span></td>
             <td><span class="spec-tag" style="background: rgba(6, 182, 212, 0.08); border-color: rgba(6, 182, 212, 0.2); color: var(--accent-cyan); font-weight: 600;">${escapeHtml(booking.scheme_name || 'Open Nest')}</span></td>
             <td title="${escapeHtml(booking.special_requests || '')}">${escapeHtml(requestsStr)}</td>
-            <td>
-                <span class="status-badge ${badgeClass}">${booking.status}</span>
-            </td>
+            <td><span class="status-badge ${badgeClass}">${booking.status}</span></td>
             <td>
                 <div class="actions-cell">
-                    <button class="btn-icon btn-resched" title="Reschedule Tour" 
+                    <button class="btn-icon btn-resched" title="Reschedule Tour"
                             onclick="openRescheduleModal(${booking.id}, '${booking.booking_date}', '${booking.booking_time}')"
                             ${isCancelled ? 'disabled style="opacity:0.3; cursor:not-allowed;"' : ''}>
                         <i class="fa-solid fa-clock-rotate-left"></i>
                     </button>
-                    <button class="btn-icon btn-cancel" title="Cancel Tour" 
+                    <button class="btn-icon btn-cancel" title="Cancel Tour"
                             onclick="cancelBooking(${booking.id}, '${escapeHtml(booking.visitor_name)}')"
                             ${isCancelled ? 'disabled style="opacity:0.3; cursor:not-allowed;"' : ''}>
                         <i class="fa-solid fa-trash-can"></i>
@@ -754,12 +688,12 @@ function filterBookings() {
         return;
     }
 
-    const filtered = allBookings.filter(b => {
-        return b.visitor_name.toLowerCase().includes(searchVal) ||
-            b.visitor_email.toLowerCase().includes(searchVal) ||
-            b.booking_date.includes(searchVal) ||
-            (b.special_requests && b.special_requests.toLowerCase().includes(searchVal));
-    });
+    const filtered = allBookings.filter(b =>
+        b.visitor_name.toLowerCase().includes(searchVal) ||
+        b.visitor_email.toLowerCase().includes(searchVal) ||
+        b.booking_date.includes(searchVal) ||
+        (b.special_requests && b.special_requests.toLowerCase().includes(searchVal))
+    );
 
     renderBookingsTable(filtered);
 }
@@ -768,51 +702,36 @@ function filterBookings() {
 // Visual SQL Query Logging Panel Handler
 // -------------------------------------------------------------
 function toggleSqlConsole() {
-    const consoleEl = document.getElementById('sql-console');
-    consoleEl.classList.toggle('closed');
+    document.getElementById('sql-console').classList.toggle('closed');
 }
 
 function openSqlConsole() {
-    const consoleEl = document.getElementById('sql-console');
-    consoleEl.classList.remove('closed');
+    document.getElementById('sql-console').classList.remove('closed');
 }
 
 function logSqlQuery(rawSql, engineName) {
     const codeEl = document.getElementById('sql-console-code');
     const engineIndicator = document.getElementById('sql-engine-indicator');
-
     if (!codeEl) return;
-
     engineIndicator.textContent = engineName;
-
-    // Apply basic syntax highlighting markup
-    const highlighted = highlightSqlSyntax(rawSql);
-    codeEl.innerHTML = highlighted;
+    codeEl.innerHTML = highlightSqlSyntax(rawSql);
 }
 
 function highlightSqlSyntax(sqlText) {
     if (!sqlText) return '';
 
-    // Escape HTML first
     let escaped = escapeHtml(sqlText);
 
-    // List of major SQL keywords
     const keywords = [
         'SELECT', 'INSERT', 'UPDATE', 'DELETE', 'FROM', 'WHERE', 'AND', 'OR', 'ORDER BY', 'DESC', 'ASC',
         'VALUES', 'INTO', 'SET', 'CASE', 'WHEN', 'THEN', 'ELSE', 'END', 'SUM', 'COUNT', 'AS', 'OUTPUT', 'INSERTED',
         'CAST', 'GETDATE', 'DATE', 'NVARCHAR', 'VARCHAR', 'INT', 'IDENTITY', 'PRIMARY KEY', 'NOT NULL'
     ];
 
-    // Highlight strings
     escaped = escaped.replace(/(['].*?['])/g, '<span class="sql-string">$1</span>');
-
-    // Highlight comments
     escaped = escaped.replace(/(--.*)/g, '<span class="sql-comment">$1</span>');
-
-    // Highlight numbers (except inside tags)
     escaped = escaped.replace(/\b(\d+)\b(?![^<]*>)/g, '<span class="sql-number">$1</span>');
 
-    // Highlight SQL Keywords (case-insensitive boundary check)
     keywords.forEach(keyword => {
         const regex = new RegExp(`\\b(${keyword})\\b(?![^<]*>)`, 'gi');
         escaped = escaped.replace(regex, '<span class="sql-keyword">$1</span>');
@@ -823,10 +742,8 @@ function highlightSqlSyntax(sqlText) {
 
 async function copyConsoleSql() {
     const codeEl = document.getElementById('sql-console-code');
-    const textToCopy = codeEl.innerText;
-
     try {
-        await navigator.clipboard.writeText(textToCopy);
+        await navigator.clipboard.writeText(codeEl.innerText);
         showToast("Copied!", "SQL statement copied to clipboard.", "success");
     } catch (err) {
         showToast("Copy Failed", "Unable to copy SQL automatically.", "error");
@@ -840,7 +757,6 @@ function resetBookingForm() {
     document.getElementById('details-form').reset();
     document.getElementById('special_requests').value = '';
 
-    // Clear global object values
     bookingData.visitor_name = '';
     bookingData.visitor_email = '';
     bookingData.visitor_phone = '';
@@ -848,8 +764,9 @@ function resetBookingForm() {
     bookingData.special_requests = '';
     bookingData.scheme_name = '';
 
-    // Repopulate schemes select
-    populateSchemesDropdown();
+    // FIX: Call refreshSchemes() — it fetches fresh data then calls populateSchemesDropdown()
+    // internally, eliminating the race condition from the old approach
+    refreshSchemes();
 
     initDatePickers();
     currentStep = 1;
@@ -858,16 +775,10 @@ function resetBookingForm() {
 
 function formatDate(dateStr) {
     if (!dateStr) return '';
-    // Expected yyyy-mm-dd
     const parts = dateStr.split('-');
     if (parts.length !== 3) return dateStr;
-
     const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    const year = parts[0];
-    const month = months[parseInt(parts[1]) - 1];
-    const day = parts[2];
-
-    return `${month} ${day}, ${year}`;
+    return `${months[parseInt(parts[1]) - 1]} ${parts[2]}, ${parts[0]}`;
 }
 
 function showToast(title, message, type = 'success') {
@@ -891,12 +802,9 @@ function showToast(title, message, type = 'success') {
 
     container.appendChild(toast);
 
-    // Auto-remove after 4.5 seconds
     setTimeout(() => {
         toast.classList.add('removing');
-        setTimeout(() => {
-            toast.remove();
-        }, 400);
+        setTimeout(() => toast.remove(), 400);
     }, 4500);
 }
 
@@ -911,7 +819,7 @@ function escapeHtml(text) {
 }
 
 // -------------------------------------------------------------
-// Theme Management (☀️ Light / 🌙 Dark Mode)
+// Theme Management
 // -------------------------------------------------------------
 function initTheme() {
     const savedTheme = localStorage.getItem('app-theme') || 'dark';
@@ -925,17 +833,12 @@ function toggleTheme() {
     document.body.className = newTheme + '-theme';
     localStorage.setItem('app-theme', newTheme);
     updateThemeIcon(newTheme);
-    // Silent theme toggle – no toast
 }
 
 function updateThemeIcon(theme) {
     const icon = document.getElementById('theme-icon');
     if (!icon) return;
-    if (theme === 'dark') {
-        icon.className = 'fa-solid fa-sun';
-    } else {
-        icon.className = 'fa-solid fa-moon';
-    }
+    icon.className = theme === 'dark' ? 'fa-solid fa-sun' : 'fa-solid fa-moon';
 }
 
 // -------------------------------------------------------------
@@ -948,18 +851,14 @@ function initRole() {
 function toggleRoleDropdown(event) {
     event.stopPropagation();
     const container = document.querySelector('.role-selector-container');
-    if (container) {
-        container.classList.toggle('open');
-    }
+    if (container) container.classList.toggle('open');
 }
 
 function setupRoleDropdownCloseListener() {
     document.addEventListener('click', (e) => {
         const container = document.querySelector('.role-selector-container');
         if (container && container.classList.contains('open')) {
-            if (!container.contains(e.target)) {
-                container.classList.remove('open');
-            }
+            if (!container.contains(e.target)) container.classList.remove('open');
         }
     });
 }
@@ -967,32 +866,26 @@ function setupRoleDropdownCloseListener() {
 function switchRole(role) {
     currentRole = role;
 
-    // Close role selector dropdown
     const container = document.querySelector('.role-selector-container');
     if (container) container.classList.remove('open');
 
-    // Update active label UI
     const activeText = document.getElementById('active-role-text');
     const roleIcon = document.getElementById('role-icon');
 
     if (role === 'admin') {
         if (activeText) activeText.textContent = "Admin Role";
         if (roleIcon) roleIcon.className = "fa-solid fa-user-shield";
-
         document.getElementById('role-opt-admin').classList.add('active');
         document.getElementById('role-opt-visitor').classList.remove('active');
     } else {
         if (activeText) activeText.textContent = "Visitor Role";
         if (roleIcon) roleIcon.className = "fa-solid fa-user-circle";
-
         document.getElementById('role-opt-visitor').classList.add('active');
         document.getElementById('role-opt-admin').classList.remove('active');
     }
 
-    // Apply visibility overrides (no toast – silent switch)
     applyRoleVisibility();
 
-    // Redirect appropriately based on role
     const activeLink = document.querySelector('.nav-link.active');
     if (activeLink) {
         const target = activeLink.getAttribute('data-target');
@@ -1005,28 +898,20 @@ function switchRole(role) {
 }
 
 function applyRoleVisibility() {
-    const adminNavLinks = document.querySelectorAll('.nav-link.admin-only');
-    const visitorNavLinks = document.querySelectorAll('.nav-link.visitor-only');
-
-    adminNavLinks.forEach(link => {
+    document.querySelectorAll('.nav-link.admin-only').forEach(link => {
         link.style.display = (currentRole === 'admin') ? 'flex' : 'none';
     });
 
-    visitorNavLinks.forEach(link => {
+    document.querySelectorAll('.nav-link.visitor-only').forEach(link => {
         link.style.display = (currentRole === 'visitor') ? 'flex' : 'none';
     });
 
-    // Handle sections and regular block visibility
     document.querySelectorAll('.admin-only').forEach(el => {
         if (el.tagName !== 'A') {
             if (currentRole !== 'admin') {
                 el.style.display = 'none';
             } else {
-                if (el.classList.contains('app-section')) {
-                    el.style.display = el.classList.contains('active') ? 'block' : 'none';
-                } else {
-                    el.style.display = '';
-                }
+                el.style.display = el.classList.contains('app-section') ? (el.classList.contains('active') ? 'block' : 'none') : '';
             }
         }
     });
@@ -1036,65 +921,59 @@ function applyRoleVisibility() {
             if (currentRole !== 'visitor') {
                 el.style.display = 'none';
             } else {
-                if (el.classList.contains('app-section')) {
-                    el.style.display = el.classList.contains('active') ? 'block' : 'none';
-                } else {
-                    el.style.display = '';
-                }
+                el.style.display = el.classList.contains('app-section') ? (el.classList.contains('active') ? 'block' : 'none') : '';
             }
         }
     });
 
-    // Handle the header Reserve Tour button specifically
     const reserveBtn = document.getElementById('header-reserve-btn');
-    if (reserveBtn) {
-        reserveBtn.style.display = (currentRole === 'visitor') ? '' : 'none';
-    }
+    if (reserveBtn) reserveBtn.style.display = (currentRole === 'visitor') ? '' : 'none';
 }
 
 // -------------------------------------------------------------
 // Property Schemes Management System
 // -------------------------------------------------------------
-async function refreshSchemes() {
-    try {
-        let schemesRes;
-        let sqlTrace = '';
-        let engineName = '';
 
+// FIX: refreshSchemes() now returns the SQL trace string.
+// - populateSchemesDropdown() is called synchronously right after allSchemes is set
+// - No more race condition: dropdown always reflects current data
+// - Callers decide whether/how to surface the SQL in the audit log
+async function refreshSchemes() {
+    let sqlTrace = '';
+    try {
         if (!isStandaloneMode) {
             const res = await fetch('https://your-backend.onrender.com/api/schemes');
             if (!res.ok) throw new Error("Server returned invalid schemes response.");
-            schemesRes = await res.json();
+            const schemesRes = await res.json();
             allSchemes = schemesRes.data;
             sqlTrace = schemesRes.sqlQuery;
-            engineName = schemesRes.engine;
         } else {
-            // LocalStorage fallback mock schemes database
             const mockSchemes = JSON.parse(localStorage.getItem('mock_schemes') || '[]');
             allSchemes = mockSchemes;
             sqlTrace = `SELECT id, name, price, viewing_rules, description FROM schemes ORDER BY id ASC;`;
-            engineName = 'Simulated SQL Sandbox (LocalStorage)';
         }
 
-        // Populate Form select element in step 1
+        // FIX: Always populate dropdown immediately after allSchemes is updated
         populateSchemesDropdown();
-
-        // Populate Admin scheme tier table
         renderSchemesTable();
 
     } catch (err) {
         console.error("Refresh schemes pipeline failed:", err);
         showToast("Schemes Sync Error", "Failed to retrieve active villa schemes from database.", "error");
     }
+
+    return sqlTrace;
 }
 
 function populateSchemesDropdown() {
     const dropdown = document.getElementById('booking_scheme');
     if (!dropdown) return;
 
+    // FIX: Preserve existing selection if that scheme still exists
+    const previousValue = dropdown.value;
+
     dropdown.innerHTML = '';
 
-    // Placeholder
     const placeholder = document.createElement('option');
     placeholder.value = '';
     placeholder.disabled = true;
@@ -1108,6 +987,11 @@ function populateSchemesDropdown() {
         option.textContent = `${s.name} (${s.price})`;
         dropdown.appendChild(option);
     });
+
+    // Restore prior selection if still valid
+    if (previousValue && allSchemes.some(s => s.name === previousValue)) {
+        dropdown.value = previousValue;
+    }
 }
 
 function renderSchemesTable() {
@@ -1174,38 +1058,22 @@ async function submitScheme(e) {
                 body: JSON.stringify({ name, price, viewing_rules, description })
             });
 
-            if (response.status === 409) {
-                throw new Error("A scheme with this property name already exists.");
-            }
-            if (!response.ok) {
-                throw new Error("Server rejected property scheme insertion.");
-            }
+            if (response.status === 409) throw new Error("A scheme with this property name already exists.");
+            if (!response.ok) throw new Error("Server rejected property scheme insertion.");
             result = await response.json();
         } else {
-            // Local simulator insertion
             const mockSchemes = JSON.parse(localStorage.getItem('mock_schemes') || '[]');
             const isConflict = mockSchemes.some(s => s.name.toLowerCase() === name.toLowerCase());
 
-            if (isConflict) {
-                throw new Error("A scheme with this property name already exists.");
-            }
+            if (isConflict) throw new Error("A scheme with this property name already exists.");
 
             const nextId = mockSchemes.length > 0 ? Math.max(...mockSchemes.map(s => s.id)) + 1 : 1;
-            const newRecord = {
-                id: nextId,
-                name,
-                price,
-                viewing_rules,
-                description
-            };
+            const newRecord = { id: nextId, name, price, viewing_rules, description };
 
             mockSchemes.push(newRecord);
             localStorage.setItem('mock_schemes', JSON.stringify(mockSchemes));
 
-            const simulatedSql = `
-INSERT INTO schemes (name, price, viewing_rules, description)
-VALUES ('${name}', '${price}', ${viewing_rules ? `'${viewing_rules}'` : 'NULL'}, ${description ? `'${description}'` : 'NULL'});
-            `.trim();
+            const simulatedSql = `INSERT INTO schemes (name, price, viewing_rules, description)\nVALUES ('${name}', '${price}', ${viewing_rules ? `'${viewing_rules}'` : 'NULL'}, ${description ? `'${description}'` : 'NULL'});`;
 
             result = {
                 scheme: newRecord,
@@ -1215,14 +1083,14 @@ VALUES ('${name}', '${price}', ${viewing_rules ? `'${viewing_rules}'` : 'NULL'},
         }
 
         showToast("Scheme Added", `Property "${name}" successfully registered in system.`, "success");
-
-        // Reset form inputs
         document.getElementById('scheme-creation-form').reset();
 
-        // Dynamic re-sync in dashboard/dropdown lists
-        await refreshData();
+        // FIX: Only call refreshSchemes() — not full refreshData()
+        // This avoids double-fetching bookings AND prevents the INSERT SQL from being
+        // overwritten by the SELECT audit log that refreshData() would emit
+        await refreshSchemes();
 
-        // Log SQL trace query
+        // Show only the scheme INSERT SQL in the audit console
         logSqlQuery(result.sqlQuery, result.engine);
         openSqlConsole();
 
@@ -1265,22 +1133,16 @@ function getMockSchemesSeedData() {
 // -------------------------------------------------------------
 function initVisitorMap() {
     if (visitorMap) return;
-
     const container = document.getElementById('visitor-map');
     if (!container) return;
 
-    visitorMap = L.map('visitor-map', {
-        zoomControl: true,
-        attributionControl: true
-    }).setView(estateCoords, 14);
-
+    visitorMap = L.map('visitor-map', { zoomControl: true, attributionControl: true }).setView(estateCoords, 14);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         maxZoom: 19,
         attribution: '\u00a9 <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
     }).addTo(visitorMap);
 
-    const marker = L.marker(estateCoords).addTo(visitorMap);
-    marker.bindPopup(`
+    L.marker(estateCoords).addTo(visitorMap).bindPopup(`
         <div style="font-family: 'Outfit', sans-serif; color: #1e293b; padding: 4px;">
             <h5 style="margin: 0 0 4px 0; font-size: 14px; font-weight: 600; color: #0f172a;">Open Nest Estate</h5>
             <p style="margin: 0; font-size: 11px; color: #64748b;">Malabar Hill, Mumbai, Maharashtra 400006</p>
@@ -1290,22 +1152,16 @@ function initVisitorMap() {
 
 function initAdminMap() {
     if (adminMap) return;
-
     const container = document.getElementById('admin-map');
     if (!container) return;
 
-    adminMap = L.map('admin-map', {
-        zoomControl: true,
-        attributionControl: true
-    }).setView(estateCoords, 14);
-
+    adminMap = L.map('admin-map', { zoomControl: true, attributionControl: true }).setView(estateCoords, 14);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         maxZoom: 19,
         attribution: '\u00a9 <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
     }).addTo(adminMap);
 
-    const marker = L.marker(estateCoords).addTo(adminMap);
-    marker.bindPopup(`
+    L.marker(estateCoords).addTo(adminMap).bindPopup(`
         <div style="font-family: 'Outfit', sans-serif; color: #1e293b; padding: 4px;">
             <h5 style="margin: 0 0 4px 0; font-size: 14px; font-weight: 600; color: #0f172a;">Open Nest Estate</h5>
             <p style="margin: 0; font-size: 11px; color: #64748b;">Malabar Hill, Mumbai, Maharashtra 400006</p>
@@ -1316,7 +1172,6 @@ function initAdminMap() {
 // -------------------------------------------------------------
 // Troubleshoot Tab System
 // -------------------------------------------------------------
-
 const tsQueries = {
     bookings: `SELECT * FROM bookings ORDER BY booking_date DESC, booking_time ASC;`,
     stats: `SELECT\n  COUNT(*) AS totalBookings,\n  SUM(visitor_count) AS totalVisitors,\n  SUM(CASE WHEN booking_date >= CAST(GETDATE() AS DATE)\n       AND status != 'Cancelled' THEN 1 ELSE 0 END) AS upcomingTours,\n  SUM(CASE WHEN status = 'Cancelled' THEN 1 ELSE 0 END) AS cancelledBookings\nFROM bookings;`,
@@ -1325,22 +1180,15 @@ const tsQueries = {
 let tsActiveTab = 'bookings';
 let tsLastSyncTime = null;
 
-// Run full health check
 async function runTroubleshootDiagnostic() {
     setTsStatus('backend', 'checking', 'Checking...');
     setTsStatus('db', 'checking', 'Checking...');
     setTsStatus('bookings', 'checking', 'Checking...');
     setTsStatus('schemes', 'checking', 'Checking...');
 
-    let backendOk = false;
-    let bookingsOk = false;
-    let schemesOk = false;
-
-    // 1. Backend ping
     try {
         const r = await fetch('https://your-backend.onrender.com/api/stats');
         if (r.ok) {
-            backendOk = true;
             setTsStatus('backend', 'ok', 'Online');
             setTsStatus('db', 'ok', 'MySQL Connected');
         } else {
@@ -1352,19 +1200,16 @@ async function runTroubleshootDiagnostic() {
         tsLogError('Backend server unreachable', e.message, 'Try restarting the Node.js server with `npm run dev`. If offline, data is simulated via LocalStorage.');
     }
 
-    // 2. Bookings API
     try {
         if (!isStandaloneMode) {
             const r = await fetch('https://your-backend.onrender.com/api/bookings');
             if (r.ok) {
-                bookingsOk = true;
                 setTsStatus('bookings', 'ok', 'Responding');
             } else {
                 throw new Error(`HTTP ${r.status}`);
             }
         } else {
             const mock = JSON.parse(localStorage.getItem('mock_bookings') || '[]');
-            bookingsOk = true;
             setTsStatus('bookings', 'warn', `LocalStorage (${mock.length} records)`);
         }
     } catch (e) {
@@ -1372,19 +1217,16 @@ async function runTroubleshootDiagnostic() {
         tsLogError('https://your-backend.onrender.com/api/bookings failed', e.message, 'Check db.js getAllBookings() method and MySQL connection string in .env');
     }
 
-    // 3. Schemes API
     try {
         if (!isStandaloneMode) {
             const r = await fetch('https://your-backend.onrender.com/api/schemes');
             if (r.ok) {
-                schemesOk = true;
                 setTsStatus('schemes', 'ok', 'Responding');
             } else {
                 throw new Error(`HTTP ${r.status}`);
             }
         } else {
             const mock = JSON.parse(localStorage.getItem('mock_schemes') || '[]');
-            schemesOk = true;
             setTsStatus('schemes', 'warn', `LocalStorage (${mock.length} schemes)`);
         }
     } catch (e) {
@@ -1392,10 +1234,7 @@ async function runTroubleshootDiagnostic() {
         tsLogError('https://your-backend.onrender.com/api/schemes failed', e.message, 'Check db.js getAllSchemes() and verify your MySQL tables match schema.sql');
     }
 
-    // Update SQL query view
     updateTsSqlView();
-
-    // Update system info
     updateTsSysInfo();
 
     tsLastSyncTime = new Date();
@@ -1403,7 +1242,6 @@ async function runTroubleshootDiagnostic() {
 }
 
 function setTsStatus(service, state, text) {
-    // state: 'ok' | 'warn' | 'error' | 'checking'
     const badge = document.getElementById(`ts-${service}-badge`);
     const icon = document.getElementById(`ts-${service}-icon`);
     if (!badge) return;
@@ -1427,7 +1265,6 @@ function tsLogError(title, detail, fix) {
     const log = document.getElementById('ts-error-log');
     if (!log) return;
 
-    // Remove empty placeholder
     const empty = log.querySelector('.ts-log-empty');
     if (empty) empty.remove();
 
@@ -1469,8 +1306,7 @@ function updateTsSqlView() {
     const engineLabel = document.getElementById('ts-engine-label');
     if (!codeEl) return;
 
-    const rawSql = tsQueries[tsActiveTab] || '-- No query available';
-    codeEl.innerHTML = highlightSqlSyntax(rawSql);
+    codeEl.innerHTML = highlightSqlSyntax(tsQueries[tsActiveTab] || '-- No query available');
 
     if (engineLabel) {
         engineLabel.innerHTML = isStandaloneMode
@@ -1504,9 +1340,7 @@ function updateTsSysInfo() {
     if (lsEl) {
         let lsSize = 0;
         for (const key in localStorage) {
-            if (localStorage.hasOwnProperty(key)) {
-                lsSize += localStorage[key].length * 2; // approx bytes
-            }
+            if (localStorage.hasOwnProperty(key)) lsSize += localStorage[key].length * 2;
         }
         lsEl.textContent = lsSize < 1024 ? `${lsSize} B` : `${(lsSize / 1024).toFixed(1)} KB`;
     }
