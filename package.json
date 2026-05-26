@@ -1,0 +1,17 @@
+{
+  "name": "visitor-booking-app",
+  "version": "1.0.0",
+  "description": "Visitor booking app for home viewing tours with Glassmorphism UI and MySQL backend",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "mysql2": "^3.9.7",
+    "dotenv": "^16.4.5",
+    "cors": "^2.8.5"
+  },
+  "author": "",
+  "license": "ISC"
+}
