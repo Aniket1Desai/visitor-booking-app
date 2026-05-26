@@ -85,7 +85,7 @@ async function detectEngineModeAndLoad() {
 
     try {
         indicator.textContent = "Connecting...";
-        const res = await fetch('https://your-backend.onrender.com/api/stats');
+        const res = await fetch('/api/stats');
         if (res.ok) {
             isStandaloneMode = false;
             indicator.textContent = "MySQL Server Backend";
@@ -115,47 +115,7 @@ async function detectEngineModeAndLoad() {
 }
 
 function getMockSeedData() {
-    return [
-        {
-            id: 1,
-            visitor_name: 'Priya Sharma',
-            visitor_email: 'priya.sharma@example.in',
-            visitor_phone: '+91 98200 45678',
-            booking_date: getOffsetDateString(1),
-            booking_time: '10:00 AM',
-            visitor_count: 2,
-            special_requests: 'Would like to see the sea-view terrace and smart home automation panel.',
-            status: 'Confirmed',
-            scheme_name: 'Open Nest',
-            created_at: new Date(Date.now() - 7200000).toISOString()
-        },
-        {
-            id: 2,
-            visitor_name: 'Arjun Mehta',
-            visitor_email: 'arjun.mehta@example.in',
-            visitor_phone: '+91 91234 56789',
-            booking_date: getOffsetDateString(2),
-            booking_time: '02:00 PM',
-            visitor_count: 1,
-            special_requests: 'Interested in solar panel integration and home automation systems.',
-            status: 'Confirmed',
-            scheme_name: 'Sunset Cliffs Estate',
-            created_at: new Date(Date.now() - 18000000).toISOString()
-        },
-        {
-            id: 3,
-            visitor_name: 'Rohan Desai',
-            visitor_email: 'rohan.desai@example.in',
-            visitor_phone: '+91 70450 88888',
-            booking_date: getOffsetDateString(-1),
-            booking_time: '11:00 AM',
-            visitor_count: 3,
-            special_requests: 'Require accessibility details for wheelchair-friendly entrance.',
-            status: 'Confirmed',
-            scheme_name: 'Horizon Penthouse Suite',
-            created_at: new Date(Date.now() - 86400000).toISOString()
-        }
-    ];
+    return [];
 }
 
 function getOffsetDateString(days) {
@@ -377,10 +337,10 @@ async function refreshData() {
         const schemesSqlTrace = await refreshSchemes();
 
         if (!isStandaloneMode) {
-            const bRes = await fetch('https://your-backend.onrender.com/api/bookings');
+            const bRes = await fetch('/api/bookings');
             bookingsRes = await bRes.json();
 
-            const sRes = await fetch('https://your-backend.onrender.com/api/stats');
+            const sRes = await fetch('/api/stats');
             statsRes = await sRes.json();
 
             allBookings = bookingsRes.data;
@@ -442,7 +402,7 @@ async function submitBooking() {
     try {
         let result;
         if (!isStandaloneMode) {
-            const response = await fetch('https://your-backend.onrender.com/api/bookings', {
+            const response = await fetch('/api/bookings', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(bookingData)
@@ -942,7 +902,7 @@ async function refreshSchemes() {
     let sqlTrace = '';
     try {
         if (!isStandaloneMode) {
-            const res = await fetch('https://your-backend.onrender.com/api/schemes');
+            const res = await fetch('/api/schemes');
             if (!res.ok) throw new Error("Server returned invalid schemes response.");
             const schemesRes = await res.json();
             allSchemes = schemesRes.data;
@@ -1052,7 +1012,7 @@ async function submitScheme(e) {
     try {
         let result;
         if (!isStandaloneMode) {
-            const response = await fetch('https://your-backend.onrender.com/api/schemes', {
+            const response = await fetch('/api/schemes', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ name, price, viewing_rules, description })
@@ -1103,29 +1063,7 @@ async function submitScheme(e) {
 }
 
 function getMockSchemesSeedData() {
-    return [
-        {
-            id: 1,
-            name: 'Open Nest',
-            price: '\u20B915.5 Crore',
-            viewing_rules: 'Pre-cleared VIPs only',
-            description: 'Our flagship 12,500 sq ft smart tech architectural villa atop Malabar Hill, Mumbai with panoramic sea views.'
-        },
-        {
-            id: 2,
-            name: 'Sunset Cliffs Estate',
-            price: '\u20B98.9 Crore',
-            viewing_rules: 'Prior identification required',
-            description: 'Breathtaking hilltop estate in Lonavala featuring a private infinity pool and lush forest surroundings.'
-        },
-        {
-            id: 3,
-            name: 'Horizon Penthouse Suite',
-            price: '\u20B94.2 Crore',
-            viewing_rules: 'Accompanied agents only',
-            description: 'Premium sky penthouse in Bandra Kurla Complex with glass facades and full-floor smart automation.'
-        }
-    ];
+    return [];
 }
 
 // -------------------------------------------------------------
@@ -1187,7 +1125,7 @@ async function runTroubleshootDiagnostic() {
     setTsStatus('schemes', 'checking', 'Checking...');
 
     try {
-        const r = await fetch('https://your-backend.onrender.com/api/stats');
+        const r = await fetch('/api/stats');
         if (r.ok) {
             setTsStatus('backend', 'ok', 'Online');
             setTsStatus('db', 'ok', 'MySQL Connected');
@@ -1202,7 +1140,7 @@ async function runTroubleshootDiagnostic() {
 
     try {
         if (!isStandaloneMode) {
-            const r = await fetch('https://your-backend.onrender.com/api/bookings');
+            const r = await fetch('/api/bookings');
             if (r.ok) {
                 setTsStatus('bookings', 'ok', 'Responding');
             } else {
@@ -1214,12 +1152,12 @@ async function runTroubleshootDiagnostic() {
         }
     } catch (e) {
         setTsStatus('bookings', 'error', 'API Error');
-        tsLogError('https://your-backend.onrender.com/api/bookings failed', e.message, 'Check db.js getAllBookings() method and MySQL connection string in .env');
+        tsLogError('/api/bookings failed', e.message, 'Check db.js getAllBookings() method and MySQL connection string in .env');
     }
 
     try {
         if (!isStandaloneMode) {
-            const r = await fetch('https://your-backend.onrender.com/api/schemes');
+            const r = await fetch('/api/schemes');
             if (r.ok) {
                 setTsStatus('schemes', 'ok', 'Responding');
             } else {
@@ -1231,7 +1169,7 @@ async function runTroubleshootDiagnostic() {
         }
     } catch (e) {
         setTsStatus('schemes', 'error', 'API Error');
-        tsLogError('https://your-backend.onrender.com/api/schemes failed', e.message, 'Check db.js getAllSchemes() and verify your MySQL tables match schema.sql');
+        tsLogError('/api/schemes failed', e.message, 'Check db.js getAllSchemes() and verify your MySQL tables match schema.sql');
     }
 
     updateTsSqlView();
@@ -1376,7 +1314,7 @@ async function tsFixReconnect() {
     const indicator = document.getElementById('sql-engine-indicator');
     if (indicator) indicator.textContent = 'Reconnecting...';
     try {
-        const res = await fetch('https://your-backend.onrender.com/api/stats');
+        const res = await fetch('/api/stats');
         if (res.ok) {
             isStandaloneMode = false;
             indicator.textContent = 'MySQL Server Backend';

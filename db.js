@@ -20,73 +20,9 @@ const JSON_SCHEMES_PATH = path.join(__dirname, 'schemes_db.json');
 let useSqlDB = false;
 let sqlPool = null;
 
-// Initial high-quality mock bookings
-const initialMockBookings = [
-    {
-        id: 1,
-        visitor_name: 'Evelyn Mercer',
-        visitor_email: 'evelyn.mercer@example.com',
-        visitor_phone: '+1 (555) 234-5678',
-        booking_date: getOffsetDateString(1),
-        booking_time: '10:00 AM',
-        visitor_count: 2,
-        scheme_name: 'Open Nest',
-        special_requests: 'Would love to see the master bedroom layout and pool automation panel.',
-        status: 'Confirmed',
-        created_at: new Date(Date.now() - 3600000 * 2).toISOString()
-    },
-    {
-        id: 2,
-        visitor_name: 'Julian Vance',
-        visitor_email: 'julian.vance@example.com',
-        visitor_phone: '+1 (555) 876-5432',
-        booking_date: getOffsetDateString(2),
-        booking_time: '02:00 PM',
-        visitor_count: 1,
-        scheme_name: 'Sunset Cliffs Estate',
-        special_requests: 'Interested in the solar integration and smart home system.',
-        status: 'Confirmed',
-        created_at: new Date(Date.now() - 3600000 * 5).toISOString()
-    },
-    {
-        id: 3,
-        visitor_name: 'Marcus Vance',
-        visitor_email: 'marcus@example.com',
-        visitor_phone: '+1 (555) 999-8888',
-        booking_date: getOffsetDateString(-1),
-        booking_time: '11:30 AM',
-        visitor_count: 3,
-        scheme_name: 'Horizon Penthouse Suite',
-        special_requests: 'Need accessibility answers for wheelchair entrance.',
-        status: 'Confirmed',
-        created_at: new Date(Date.now() - 86400000).toISOString()
-    }
-];
+// Initial high-quality mock bookings removed
 
-// Initial mock schemes
-const initialMockSchemes = [
-    {
-        id: 1,
-        name: 'Open Nest',
-        price: '$18.5 Million',
-        viewing_rules: 'Pre-cleared VIPs only',
-        description: 'Our flagship 14,200 sq ft smart tech architectural mansion in Bel Air cliffs.'
-    },
-    {
-        id: 2,
-        name: 'Sunset Cliffs Estate',
-        price: '$12.4 Million',
-        viewing_rules: 'Prior identification required',
-        description: 'Breathtaking oceanfront estate featuring a private heated glass-bottom infinity pool.'
-    },
-    {
-        id: 3,
-        name: 'Horizon Penthouse Suite',
-        price: '$6.9 Million',
-        viewing_rules: 'Accompanied agents only',
-        description: 'Sleek, high-elevation sky penthouse with modern automation and floor-to-ceiling glass.'
-    }
-];
+// Initial mock schemes removed
 
 function getOffsetDateString(days) {
     const d = new Date();
@@ -99,15 +35,15 @@ function getOffsetDateString(days) {
 // -------------------------------------------------------------
 function readJsonDb() {
     if (!fs.existsSync(JSON_DB_PATH)) {
-        fs.writeFileSync(JSON_DB_PATH, JSON.stringify(initialMockBookings, null, 2), 'utf-8');
-        return initialMockBookings;
+        fs.writeFileSync(JSON_DB_PATH, JSON.stringify([], null, 2), 'utf-8');
+        return [];
     }
     try {
         const data = fs.readFileSync(JSON_DB_PATH, 'utf-8');
         return JSON.parse(data);
     } catch (err) {
         console.error('Error reading JSON bookings DB. Resetting it...', err);
-        return initialMockBookings;
+        return [];
     }
 }
 
@@ -117,15 +53,15 @@ function writeJsonDb(data) {
 
 function readSchemesDb() {
     if (!fs.existsSync(JSON_SCHEMES_PATH)) {
-        fs.writeFileSync(JSON_SCHEMES_PATH, JSON.stringify(initialMockSchemes, null, 2), 'utf-8');
-        return initialMockSchemes;
+        fs.writeFileSync(JSON_SCHEMES_PATH, JSON.stringify([], null, 2), 'utf-8');
+        return [];
     }
     try {
         const data = fs.readFileSync(JSON_SCHEMES_PATH, 'utf-8');
         return JSON.parse(data);
     } catch (err) {
         console.error('Error reading JSON schemes DB. Resetting it...', err);
-        return initialMockSchemes;
+        return [];
     }
 }
 
@@ -219,6 +155,7 @@ async function getAllBookings() {
             };
         } catch (err) {
             console.error('SQL query failed. Using JSON fallback.', err);
+            throw err;
         }
     }
 
@@ -302,6 +239,7 @@ VALUES ('${visitor_name}', '${visitor_email}', '${visitor_phone}', '${booking_da
         } catch (err) {
             if (err.message.includes('already booked')) throw err;
             console.error('SQL create failed. Using JSON fallback.', err);
+            throw err;
         }
     }
 
@@ -398,6 +336,7 @@ WHERE id = ${bookingId};
         } catch (err) {
             if (err.message.includes('already booked') || err.message.includes('not found')) throw err;
             console.error('SQL reschedule failed. Using JSON fallback.', err);
+            throw err;
         }
     }
 
@@ -476,6 +415,7 @@ WHERE id = ${bookingId};
         } catch (err) {
             if (err.message.includes('not found')) throw err;
             console.error('SQL cancellation failed. Using JSON fallback.', err);
+            throw err;
         }
     }
 
@@ -530,6 +470,7 @@ async function getStats() {
             };
         } catch (err) {
             console.error('SQL stats failed. Using JSON fallback.', err);
+            throw err;
         }
     }
 
@@ -586,6 +527,7 @@ async function getAllSchemes() {
             };
         } catch (err) {
             console.error('SQL query schemes failed. Using JSON fallback.', err);
+            throw err;
         }
     }
 
