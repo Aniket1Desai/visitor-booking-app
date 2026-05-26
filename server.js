@@ -154,7 +154,7 @@ app.post('/api/schemes', async (req, res) => {
             viewing_rules,
             description
         });
-        res.status(210).json(result); // 210 custom status for scheme creation
+        res.status(201).json(result); // 210 custom status for scheme creation
     } catch (err) {
         if (err.message.includes('already exists')) {
             return res.status(409).json({ error: err.message });
