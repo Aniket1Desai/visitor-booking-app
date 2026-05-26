@@ -975,6 +975,7 @@ function renderSchemesTable() {
         const tr = document.createElement('tr');
         tr.innerHTML = `
             <td><strong>${escapeHtml(s.name)}</strong></td>
+            <td><span class="text-muted"><i class="fa-solid fa-location-dot" style="margin-right: 4px; font-size: 0.85em;"></i>${escapeHtml(s.address || 'Address not provided')}</span></td>
             <td><span class="spec-tag" style="font-weight:600; color:var(--accent-cyan); border-color:rgba(6,182,212,0.25); background:rgba(6,182,212,0.06);">${escapeHtml(s.price)}</span></td>
             <td>
                 <span class="status-badge" style="background: rgba(139, 92, 246, 0.08); border: 1px solid rgba(139, 92, 246, 0.2); color: var(--accent-violet); font-size: 0.78rem;">
@@ -991,18 +992,20 @@ async function submitScheme(e) {
     e.preventDefault();
 
     const nameInput = document.getElementById('scheme_name_input');
+    const addressInput = document.getElementById('scheme_address_input');
     const priceInput = document.getElementById('scheme_price_input');
     const rulesInput = document.getElementById('scheme_rules_input');
     const descInput = document.getElementById('scheme_desc_input');
     const btnSubmit = document.getElementById('btn-submit-scheme');
 
     const name = nameInput.value.trim();
+    const address = addressInput.value.trim();
     const price = priceInput.value.trim();
     const viewing_rules = rulesInput.value.trim();
     const description = descInput.value.trim();
 
-    if (!name || !price) {
-        showToast("Validation Error", "Property scheme name and pricing label are required fields.", "error");
+    if (!name || !price || !address) {
+        showToast("Validation Error", "Property scheme name, address, and pricing label are required fields.", "error");
         return;
     }
 
@@ -1015,7 +1018,7 @@ async function submitScheme(e) {
             const response = await fetch('/api/schemes', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name, price, viewing_rules, description })
+                body: JSON.stringify({ name, address, price, viewing_rules, description })
             });
 
             if (response.status === 409) throw new Error("A scheme with this property name already exists.");
@@ -1028,12 +1031,12 @@ async function submitScheme(e) {
             if (isConflict) throw new Error("A scheme with this property name already exists.");
 
             const nextId = mockSchemes.length > 0 ? Math.max(...mockSchemes.map(s => s.id)) + 1 : 1;
-            const newRecord = { id: nextId, name, price, viewing_rules, description };
+            const newRecord = { id: nextId, name, address, price, viewing_rules, description };
 
             mockSchemes.push(newRecord);
             localStorage.setItem('mock_schemes', JSON.stringify(mockSchemes));
 
-            const simulatedSql = `INSERT INTO schemes (name, price, viewing_rules, description)\nVALUES ('${name}', '${price}', ${viewing_rules ? `'${viewing_rules}'` : 'NULL'}, ${description ? `'${description}'` : 'NULL'});`;
+            const simulatedSql = `INSERT INTO schemes (name, address, price, viewing_rules, description)\nVALUES ('${name}', '${address}', '${price}', ${viewing_rules ? `'${viewing_rules}'` : 'NULL'}, ${description ? `'${description}'` : 'NULL'});`;
 
             result = {
                 scheme: newRecord,

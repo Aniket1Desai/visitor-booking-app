@@ -141,7 +141,7 @@ app.get('/api/schemes', async (req, res) => {
  * Creates a new property scheme option (Admin feature)
  */
 app.post('/api/schemes', async (req, res) => {
-    const { name, price, viewing_rules, description } = req.body;
+    const { name, address, price, viewing_rules, description } = req.body;
 
     if (!name || !price) {
         return res.status(400).json({ error: 'Missing required scheme fields (name, price)' });
@@ -150,6 +150,7 @@ app.post('/api/schemes', async (req, res) => {
     try {
         const result = await db.createScheme({
             name,
+            address,
             price,
             viewing_rules,
             description

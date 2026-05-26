@@ -515,7 +515,7 @@ async function getAllSchemes() {
     if (useSqlDB) {
         try {
             const query = `
-                SELECT id, name, price, viewing_rules, description
+                SELECT id, name, address, price, viewing_rules, description
                 FROM schemes
                 ORDER BY id ASC
             `;
@@ -545,17 +545,18 @@ async function getAllSchemes() {
  * Create a new Scheme (Admin feature)
  */
 async function createScheme(data) {
-    const { name, price, viewing_rules, description } = data;
+    const { name, address, price, viewing_rules, description } = data;
 
     if (useSqlDB) {
         try {
             const insertQuery = `
-                INSERT INTO schemes (name, price, viewing_rules, description)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO schemes (name, address, price, viewing_rules, description)
+                VALUES (?, ?, ?, ?, ?)
             `;
 
             const [insertResult] = await sqlPool.query(insertQuery, [
                 name,
+                address || null,
                 price,
                 viewing_rules || null,
                 description || null
@@ -565,15 +566,15 @@ async function createScheme(data) {
 
             // Retrieve newly inserted scheme
             const selectQuery = `
-                SELECT id, name, price, viewing_rules, description
+                SELECT id, name, address, price, viewing_rules, description
                 FROM schemes
                 WHERE id = ?
             `;
             const [fetchedRows] = await sqlPool.query(selectQuery, [insertId]);
 
             const simulatedSql = `
-INSERT INTO schemes (name, price, viewing_rules, description)
-VALUES ('${name}', '${price}', ${viewing_rules ? `'${viewing_rules}'` : 'NULL'}, ${description ? `'${description}'` : 'NULL'});
+INSERT INTO schemes (name, address, price, viewing_rules, description)
+VALUES ('${name}', ${address ? `'${address}'` : 'NULL'}, '${price}', ${viewing_rules ? `'${viewing_rules}'` : 'NULL'}, ${description ? `'${description}'` : 'NULL'});
             `.trim();
 
             return {
