@@ -138,7 +138,7 @@ function writeSchemesDb(data) {
 // -------------------------------------------------------------
 async function initializeDB() {
     const hasCredentials = dbConfig.user && dbConfig.password && dbConfig.database;
-    
+
     if (!hasCredentials) {
         console.log('\n======================================================');
         console.log('⚠️  MYSQL ENVIRONMENT VARIABLES ARE NOT FULLY SET.');
@@ -160,11 +160,11 @@ async function initializeDB() {
             connectionLimit: 10,
             queueLimit: 0
         });
-        
+
         // Test the connection
         const connection = await sqlPool.getConnection();
         connection.release();
-        
+
         useSqlDB = true;
         console.log('\n======================================================');
         console.log('⚡ SUCCESSFULLY CONNECTED TO MYSQL SERVER!');
@@ -221,7 +221,7 @@ async function getAllBookings() {
             console.error('SQL query failed. Using JSON fallback.', err);
         }
     }
-    
+
     // JSON Fallback / Simulation
     const bookings = readJsonDb();
     bookings.sort((a, b) => {
@@ -277,7 +277,7 @@ async function createBooking(data) {
             ]);
 
             const insertId = insertResult.insertId;
-            
+
             // Retrieve inserted record
             const selectQuery = `
                 SELECT 
@@ -640,13 +640,14 @@ VALUES ('${name}', '${price}', ${viewing_rules ? `'${viewing_rules}'` : 'NULL'},
                 engine: 'MySQL Server'
             };
         } catch (err) {
-            console.error('SQL create scheme failed. Using JSON fallback.', err);
+            console.error('SQL create scheme failed:', err);
+            throw err;
         }
     }
 
     // JSON Fallback / Simulation
     const schemes = readSchemesDb();
-    
+
     // Simple conflict check
     const isConflict = schemes.some(s => s.name.toLowerCase() === name.toLowerCase());
     if (isConflict) {
