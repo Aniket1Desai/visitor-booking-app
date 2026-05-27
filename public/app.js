@@ -11,6 +11,7 @@
  * 4. resetBookingForm() no longer calls populateSchemesDropdown() directly (refreshSchemes handles it)
  * 5. Visitor booking form scheme dropdown now always reflects latest DB/LocalStorage state
  * 6. showSection('booking-section') now calls refreshSchemes() so visitor always sees latest schemes
+ * 7. renderSchemesTable() now safely handles undefined/null address field — prevents rendering crash
  */
 
 // Global State
@@ -971,12 +972,14 @@ function renderSchemesTable() {
         return;
     }
 
+    // FIX: Use safe fallbacks for all fields — prevents crash when address or any
+    // other column is undefined/null (e.g. older DB rows missing the address column)
     allSchemes.forEach(s => {
         const tr = document.createElement('tr');
         tr.innerHTML = `
-            <td><strong>${escapeHtml(s.name)}</strong></td>
+            <td><strong>${escapeHtml(s.name || '')}</strong></td>
             <td><span class="text-muted"><i class="fa-solid fa-location-dot" style="margin-right: 4px; font-size: 0.85em;"></i>${escapeHtml(s.address || 'Address not provided')}</span></td>
-            <td><span class="spec-tag" style="font-weight:600; color:var(--accent-cyan); border-color:rgba(6,182,212,0.25); background:rgba(6,182,212,0.06);">${escapeHtml(s.price)}</span></td>
+            <td><span class="spec-tag" style="font-weight:600; color:var(--accent-cyan); border-color:rgba(6,182,212,0.25); background:rgba(6,182,212,0.06);">${escapeHtml(s.price || '')}</span></td>
             <td>
                 <span class="status-badge" style="background: rgba(139, 92, 246, 0.08); border: 1px solid rgba(139, 92, 246, 0.2); color: var(--accent-violet); font-size: 0.78rem;">
                     <i class="fa-solid fa-shield-halved" style="font-size:0.75rem; margin-right:3px;"></i> ${escapeHtml(s.viewing_rules || 'Pre-cleared VIPs')}
