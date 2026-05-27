@@ -5,7 +5,7 @@ async function syncBookings() {
 
     // Railway Database
     const railwayDb = await mysql.createConnection({
-        host: 'mysql.railway.internal',
+        host: 'zephyr.proxy.rlwy.net',
         user: 'root',
         password: 'nzgkAXvfsLCplVwlHbngmjdZnRERfuGq',
         database: 'railway',
