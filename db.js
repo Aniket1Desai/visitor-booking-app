@@ -533,7 +533,7 @@ async function getAllSchemes() {
 
     // Fallback JSON schemes
     const schemes = readSchemesDb();
-    const simulatedSql = `SELECT * FROM schemes ORDER BY id ASC;`;
+    const simulatedSql = `SELECT id, name, address, price, viewing_rules, description FROM schemes ORDER BY id ASC;`;
     return {
         data: schemes,
         sqlQuery: simulatedSql,
@@ -589,9 +589,10 @@ VALUES ('${name}', ${address ? `'${address}'` : 'NULL'}, '${price}', ${viewing_r
     }
 
     // JSON Fallback / Simulation
+    // FIX: address field was missing from newScheme object — caused undefined on read-back
+    // which crashed renderSchemesTable() in the frontend
     const schemes = readSchemesDb();
 
-    // Simple conflict check
     const isConflict = schemes.some(s => s.name.toLowerCase() === name.toLowerCase());
     if (isConflict) {
         throw new Error('A scheme with this property name already exists.');
@@ -601,6 +602,7 @@ VALUES ('${name}', ${address ? `'${address}'` : 'NULL'}, '${price}', ${viewing_r
     const newScheme = {
         id: newId,
         name,
+        address: address || '',          // FIX: was missing entirely
         price,
         viewing_rules: viewing_rules || '',
         description: description || ''
@@ -610,8 +612,8 @@ VALUES ('${name}', ${address ? `'${address}'` : 'NULL'}, '${price}', ${viewing_r
     writeSchemesDb(schemes);
 
     const simulatedSql = `
-INSERT INTO schemes (name, price, viewing_rules, description)
-VALUES ('${name}', '${price}', ${viewing_rules ? `'${viewing_rules}'` : 'NULL'}, ${description ? `'${description}'` : 'NULL'});
+INSERT INTO schemes (name, address, price, viewing_rules, description)
+VALUES ('${name}', ${address ? `'${address}'` : 'NULL'}, '${price}', ${viewing_rules ? `'${viewing_rules}'` : 'NULL'}, ${description ? `'${description}'` : 'NULL'});
     `.trim();
 
     return {
