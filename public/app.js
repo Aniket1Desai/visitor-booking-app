@@ -1,20 +1,15 @@
+bash
+
+cat > /mnt/user - data / outputs / app.js << 'ENDOFFILE'
 /**
  * Core Front-End Web Application Logic
- * Client-Side Router, Dynamic Scheduling Grid, Live SQL Audit Logger,
- * and Dual-Mode Execution Engine (Node.js API vs. LocalStorage SQL Simulator).
- *
- * FIXES APPLIED:
- * 1. refreshSchemes() now returns SQL trace so refreshData() can include it in the audit log
- * 2. populateSchemesDropdown() is called inside refreshSchemes() after allSchemes is set — no more race condition
- * 3. submitScheme() no longer calls full refreshData() (avoids double-fetch + log overwrite);
- *    it calls refreshSchemes() directly, then logs only the scheme SQL
- * 4. resetBookingForm() no longer calls populateSchemesDropdown() directly (refreshSchemes handles it)
- * 5. Visitor booking form scheme dropdown now always reflects latest DB/LocalStorage state
- * 6. showSection('booking-section') now calls refreshSchemes() so visitor always sees latest schemes
- * 7. renderSchemesTable() now safely handles undefined/null address field — prevents rendering crash
+ * FIXES:
+ * 1. refreshSchemes() guards against undefined/null schemesRes.data
+ * 2. All renderSchemesTable() fields use safe || fallbacks
+ * 3. populateSchemesDropdown() called immediately after allSchemes is set
+ * 4. showSection('booking-section') always refreshes schemes dropdown
  */
 
-// Global State
 let currentStep = 1;
 const bookingData = {
     visitor_name: '',
@@ -26,7 +21,6 @@ const bookingData = {
     special_requests: ''
 };
 
-// Available daily time-slots
 const timeSlots = [
     "09:00 AM", "10:00 AM", "11:00 AM", "12:00 PM",
     "01:00 PM", "02:00 PM", "03:00 PM", "04:00 PM", "05:00 PM"
@@ -41,9 +35,6 @@ let visitorMap = null;
 let adminMap = null;
 const estateCoords = [18.9543, 72.8088];
 
-// -------------------------------------------------------------
-// Initialization & Startup
-// -------------------------------------------------------------
 document.addEventListener('DOMContentLoaded', () => {
     initDatePickers();
     initTheme();
@@ -115,9 +106,8 @@ async function detectEngineModeAndLoad() {
     renderTimeSlots('booking_date', 'slots-container', 'selected_time');
 }
 
-function getMockSeedData() {
-    return [];
-}
+function getMockSeedData() { return []; }
+function getMockSchemesSeedData() { return []; }
 
 function getOffsetDateString(days) {
     const d = new Date();
@@ -125,9 +115,6 @@ function getOffsetDateString(days) {
     return d.toISOString().split('T')[0];
 }
 
-// -------------------------------------------------------------
-// Routing & Navigation Systems
-// -------------------------------------------------------------
 function setupNavigationListeners() {
     document.querySelectorAll('.nav-link').forEach(link => {
         link.addEventListener('click', (e) => {
@@ -174,8 +161,6 @@ function showSection(sectionId) {
         refreshData();
     }
 
-    // FIX: Refresh schemes when visitor navigates to booking section
-    // so the dropdown always contains the latest schemes added by admin
     if (sectionId === 'booking-section') {
         refreshSchemes();
     }
@@ -208,9 +193,6 @@ function setupScrollEffects() {
     });
 }
 
-// -------------------------------------------------------------
-// Interactive Calendar & Slot Renderer
-// -------------------------------------------------------------
 function onDateChange(e) {
     bookingData.booking_date = e.target.value;
     renderTimeSlots('booking_date', 'slots-container', 'selected_time');
@@ -259,9 +241,6 @@ function renderTimeSlots(dateInputId, containerId, hiddenInputId) {
     });
 }
 
-// -------------------------------------------------------------
-// Multi-Step Form Logic
-// -------------------------------------------------------------
 function nextStep(step) {
     if (step === 2) {
         bookingData.visitor_name = document.getElementById('visitor_name').value.trim();
@@ -324,17 +303,12 @@ function updateStepUI() {
     }
 }
 
-// -------------------------------------------------------------
-// Core Database Operation Triggers
-// -------------------------------------------------------------
-
 async function refreshData() {
     try {
         let bookingsRes, statsRes;
         let sqlTrace = '';
         let engineName = '';
 
-        // FIX: refreshSchemes returns its SQL trace; we append it to the combined audit log
         const schemesSqlTrace = await refreshSchemes();
 
         if (!isStandaloneMode) {
@@ -345,7 +319,6 @@ async function refreshData() {
             statsRes = await sRes.json();
 
             allBookings = bookingsRes.data;
-            // FIX: Combined audit log now includes schemes SQL alongside bookings+stats
             sqlTrace = bookingsRes.sqlQuery + '\n\n' + statsRes.sqlQuery + '\n\n' + schemesSqlTrace;
             engineName = bookingsRes.engine;
         } else {
@@ -459,9 +432,6 @@ async function submitBooking() {
     }
 }
 
-// -------------------------------------------------------------
-// Rescheduling Booking System Modal
-// -------------------------------------------------------------
 function openRescheduleModal(id, date, time) {
     const modal = document.getElementById('reschedule-modal');
     document.getElementById('reschedule-booking-id').value = id;
@@ -538,9 +508,6 @@ async function submitReschedule() {
     }
 }
 
-// -------------------------------------------------------------
-// Soft Cancellation Trigger
-// -------------------------------------------------------------
 async function cancelBooking(id, name) {
     if (!confirm(`Are you sure you want to cancel the viewing tour scheduled for ${name}?`)) return;
 
@@ -573,9 +540,6 @@ async function cancelBooking(id, name) {
     }
 }
 
-// -------------------------------------------------------------
-// Dashboard Rendering & Filters
-// -------------------------------------------------------------
 function renderBookingsTable(filteredBookings = allBookings) {
     const tbody = document.getElementById('bookings-tbody');
     if (!tbody) return;
@@ -659,9 +623,6 @@ function filterBookings() {
     renderBookingsTable(filtered);
 }
 
-// -------------------------------------------------------------
-// Visual SQL Query Logging Panel Handler
-// -------------------------------------------------------------
 function toggleSqlConsole() {
     document.getElementById('sql-console').classList.toggle('closed');
 }
@@ -711,9 +672,6 @@ async function copyConsoleSql() {
     }
 }
 
-// -------------------------------------------------------------
-// Interactive UI Helpers
-// -------------------------------------------------------------
 function resetBookingForm() {
     document.getElementById('details-form').reset();
     document.getElementById('special_requests').value = '';
@@ -725,10 +683,7 @@ function resetBookingForm() {
     bookingData.special_requests = '';
     bookingData.scheme_name = '';
 
-    // FIX: Call refreshSchemes() — it fetches fresh data then calls populateSchemesDropdown()
-    // internally, eliminating the race condition from the old approach
     refreshSchemes();
-
     initDatePickers();
     currentStep = 1;
     updateStepUI();
@@ -770,7 +725,8 @@ function showToast(title, message, type = 'success') {
 }
 
 function escapeHtml(text) {
-    if (typeof text !== 'string') return text;
+    if (text === null || text === undefined) return '';
+    if (typeof text !== 'string') return String(text);
     return text
         .replace(/&/g, "&amp;")
         .replace(/</g, "&lt;")
@@ -779,9 +735,6 @@ function escapeHtml(text) {
         .replace(/'/g, "&#039;");
 }
 
-// -------------------------------------------------------------
-// Theme Management
-// -------------------------------------------------------------
 function initTheme() {
     const savedTheme = localStorage.getItem('app-theme') || 'dark';
     document.body.className = savedTheme + '-theme';
@@ -802,9 +755,6 @@ function updateThemeIcon(theme) {
     icon.className = theme === 'dark' ? 'fa-solid fa-sun' : 'fa-solid fa-moon';
 }
 
-// -------------------------------------------------------------
-// Role Selection & UI Visibility Routing
-// -------------------------------------------------------------
 function initRole() {
     applyRoleVisibility();
 }
@@ -893,33 +843,43 @@ function applyRoleVisibility() {
 
 // -------------------------------------------------------------
 // Property Schemes Management System
+// FIX: refreshSchemes() now fully guards against:
+//   - non-ok HTTP responses (MySQL 500 errors)
+//   - missing or null schemesRes.data
+//   - undefined fields on individual scheme objects
 // -------------------------------------------------------------
-
-// FIX: refreshSchemes() now returns the SQL trace string.
-// - populateSchemesDropdown() is called synchronously right after allSchemes is set
-// - No more race condition: dropdown always reflects current data
-// - Callers decide whether/how to surface the SQL in the audit log
 async function refreshSchemes() {
     let sqlTrace = '';
     try {
         if (!isStandaloneMode) {
             const res = await fetch('/api/schemes');
-            if (!res.ok) throw new Error("Server returned invalid schemes response.");
+
+            // FIX: Don't throw on non-ok — read the body anyway.
+            // server.js now always returns { data: [] } even on 500,
+            // but this guard handles any edge case.
             const schemesRes = await res.json();
-            allSchemes = schemesRes.data;
-            sqlTrace = schemesRes.sqlQuery;
+
+            // FIX: Guard against undefined/null data field
+            allSchemes = Array.isArray(schemesRes.data) ? schemesRes.data : [];
+            sqlTrace = schemesRes.sqlQuery || '';
+
+            if (!res.ok) {
+                console.warn('GET /api/schemes returned', res.status, '— details:', schemesRes.details || schemesRes.error);
+            }
         } else {
             const mockSchemes = JSON.parse(localStorage.getItem('mock_schemes') || '[]');
             allSchemes = mockSchemes;
-            sqlTrace = `SELECT id, name, price, viewing_rules, description FROM schemes ORDER BY id ASC;`;
+            sqlTrace = `SELECT id, name, address, price, viewing_rules, description FROM schemes ORDER BY id ASC;`;
         }
 
-        // FIX: Always populate dropdown immediately after allSchemes is updated
         populateSchemesDropdown();
         renderSchemesTable();
 
     } catch (err) {
         console.error("Refresh schemes pipeline failed:", err);
+        allSchemes = [];
+        populateSchemesDropdown();
+        renderSchemesTable();
         showToast("Schemes Sync Error", "Failed to retrieve active villa schemes from database.", "error");
     }
 
@@ -930,7 +890,6 @@ function populateSchemesDropdown() {
     const dropdown = document.getElementById('booking_scheme');
     if (!dropdown) return;
 
-    // FIX: Preserve existing selection if that scheme still exists
     const previousValue = dropdown.value;
 
     dropdown.innerHTML = '';
@@ -944,12 +903,11 @@ function populateSchemesDropdown() {
 
     allSchemes.forEach(s => {
         const option = document.createElement('option');
-        option.value = s.name;
-        option.textContent = `${s.name} (${s.price})`;
+        option.value = s.name || '';
+        option.textContent = `${s.name || 'Unknown'} (${s.price || 'N/A'})`;
         dropdown.appendChild(option);
     });
 
-    // Restore prior selection if still valid
     if (previousValue && allSchemes.some(s => s.name === previousValue)) {
         dropdown.value = previousValue;
     }
@@ -964,7 +922,7 @@ function renderSchemesTable() {
     if (allSchemes.length === 0) {
         tbody.innerHTML = `
             <tr>
-                <td colspan="4" class="text-center py-4 text-muted">
+                <td colspan="5" class="text-center py-4 text-muted">
                     No active property viewing tiers mapped in database.
                 </td>
             </tr>
@@ -972,8 +930,7 @@ function renderSchemesTable() {
         return;
     }
 
-    // FIX: Use safe fallbacks for all fields — prevents crash when address or any
-    // other column is undefined/null (e.g. older DB rows missing the address column)
+    // FIX: Every field uses || fallback before escapeHtml to prevent undefined/null crashes
     allSchemes.forEach(s => {
         const tr = document.createElement('tr');
         tr.innerHTML = `
@@ -1051,12 +1008,7 @@ async function submitScheme(e) {
         showToast("Scheme Added", `Property "${name}" successfully registered in system.`, "success");
         document.getElementById('scheme-creation-form').reset();
 
-        // FIX: Only call refreshSchemes() — not full refreshData()
-        // This avoids double-fetching bookings AND prevents the INSERT SQL from being
-        // overwritten by the SELECT audit log that refreshData() would emit
         await refreshSchemes();
-
-        // Show only the scheme INSERT SQL in the audit console
         logSqlQuery(result.sqlQuery, result.engine);
         openSqlConsole();
 
@@ -1068,13 +1020,6 @@ async function submitScheme(e) {
     }
 }
 
-function getMockSchemesSeedData() {
-    return [];
-}
-
-// -------------------------------------------------------------
-// Leaflet Map Initialization & Rendering Core
-// -------------------------------------------------------------
 function initVisitorMap() {
     if (visitorMap) return;
     const container = document.getElementById('visitor-map');
@@ -1113,13 +1058,10 @@ function initAdminMap() {
     `).openPopup();
 }
 
-// -------------------------------------------------------------
-// Troubleshoot Tab System
-// -------------------------------------------------------------
 const tsQueries = {
     bookings: `SELECT * FROM bookings ORDER BY booking_date DESC, booking_time ASC;`,
     stats: `SELECT\n  COUNT(*) AS totalBookings,\n  SUM(visitor_count) AS totalVisitors,\n  SUM(CASE WHEN booking_date >= CAST(GETDATE() AS DATE)\n       AND status != 'Cancelled' THEN 1 ELSE 0 END) AS upcomingTours,\n  SUM(CASE WHEN status = 'Cancelled' THEN 1 ELSE 0 END) AS cancelledBookings\nFROM bookings;`,
-    schemes: `SELECT id, name, price, viewing_rules, description\nFROM schemes\nORDER BY id ASC;`
+    schemes: `SELECT id, name, address, price, viewing_rules, description\nFROM schemes\nORDER BY id ASC;`
 };
 let tsActiveTab = 'bookings';
 let tsLastSyncTime = null;
@@ -1164,10 +1106,11 @@ async function runTroubleshootDiagnostic() {
     try {
         if (!isStandaloneMode) {
             const r = await fetch('/api/schemes');
-            if (r.ok) {
-                setTsStatus('schemes', 'ok', 'Responding');
+            const body = await r.json();
+            if (r.ok && Array.isArray(body.data)) {
+                setTsStatus('schemes', 'ok', `Responding (${body.data.length} schemes)`);
             } else {
-                throw new Error(`HTTP ${r.status}`);
+                throw new Error(body.details || body.error || `HTTP ${r.status}`);
             }
         } else {
             const mock = JSON.parse(localStorage.getItem('mock_schemes') || '[]');
@@ -1175,7 +1118,7 @@ async function runTroubleshootDiagnostic() {
         }
     } catch (e) {
         setTsStatus('schemes', 'error', 'API Error');
-        tsLogError('/api/schemes failed', e.message, 'Check db.js getAllSchemes() and verify your MySQL tables match schema.sql');
+        tsLogError('/api/schemes failed', e.message, 'Check db.js getAllSchemes() and run: ALTER TABLE schemes ADD COLUMN address VARCHAR(250) NULL AFTER name; in MySQL if address column is missing.');
     }
 
     updateTsSqlView();
@@ -1300,7 +1243,6 @@ function updateTsSysInfo() {
     }
 }
 
-// Quick Fix Buttons
 function tsFixClearLocalStorage() {
     if (!confirm('This will delete all locally stored bookings and schemes. Continue?')) return;
     localStorage.removeItem('mock_bookings');
