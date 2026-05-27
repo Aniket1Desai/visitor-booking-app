@@ -15,7 +15,7 @@ async function syncBookings() {
     // Local MySQL Database
     const localDb = await mysql.createConnection({
         host: 'localhost',
-        user: 'Root',
+        user: 'root',
         password: 'Aniket@1331',
         database: 'HouseViewingDB',
         port: 3306
