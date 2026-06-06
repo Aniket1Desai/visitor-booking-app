@@ -1,6 +1,6 @@
-bash
+//bash
 
-cat > /mnt/user - data / outputs / app.js << 'ENDOFFILE'
+//cat > /mnt/user - data / outputs / app.js << 'ENDOFFILE'
 /**
  * Core Front-End Web Application Logic
  * FIXES:
@@ -423,6 +423,13 @@ async function submitBooking() {
         allBookings.push(result.booking);
         refreshData();
         openSqlConsole();
+        // Sync new booking to SharePoint
+        try {
+            await fetch('/api/sync/bookings', { method: 'POST' });
+            showToast("SharePoint Synced", "Booking synced to SharePoint successfully.", "success");
+        } catch (syncErr) {
+            console.warn("SharePoint sync failed:", syncErr.message);
+        }
 
     } catch (err) {
         showToast("Booking Failed", err.message, "error");
@@ -1011,6 +1018,13 @@ async function submitScheme(e) {
         await refreshSchemes();
         logSqlQuery(result.sqlQuery, result.engine);
         openSqlConsole();
+        // Sync new scheme to SharePoint
+        try {
+            await fetch('/api/sync/schemes', { method: 'POST' });
+            showToast("SharePoint Synced", "Scheme synced to SharePoint successfully.", "success");
+        } catch (syncErr) {
+            console.warn("SharePoint sync failed:", syncErr.message);
+        }
 
     } catch (err) {
         showToast("Creation Failed", err.message, "error");

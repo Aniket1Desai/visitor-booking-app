@@ -1,96 +1,74 @@
+require('dotenv').config();
 const mysql = require('mysql2/promise');
-const cron = require('node-cron');
+const axios = require('axios');
+const https = require('https');
+
+// ─── SSL Agent (fixes Power Automate certificate issue) ──────────
+const agent = new https.Agent({ rejectUnauthorized: false });
 
 // ─── Railway DB Config ───────────────────────────────────────────
 const railwayConfig = {
-    host: 'zephyr.proxy.rlwy.net',
-    user: 'root',
-    password: 'nzgkAXvfsLCplVwlHbngmjdZnRERfuGq',
-    database: 'railway',
-    port: 58721
-};
-
-// ─── Local DB Config ─────────────────────────────────────────────
-const localConfig = {
-    host: 'localhost',
-    user: 'root',
-    password: 'Aniket@1331',
-    database: 'HouseViewingDB',
-    port: 3306
+    host: process.env.RAILWAY_HOST,
+    user: process.env.RAILWAY_USER,
+    password: process.env.RAILWAY_PASSWORD,
+    database: process.env.RAILWAY_DATABASE,
+    port: parseInt(process.env.RAILWAY_PORT)
 };
 
 // ─── Sync Bookings ───────────────────────────────────────────────
 async function syncBookings() {
     const railwayDb = await mysql.createConnection(railwayConfig);
-    const localDb = await mysql.createConnection(localConfig);
-
     console.log('Bookings sync started...');
 
     const [rows] = await railwayDb.execute(`SELECT * FROM bookings`);
+    console.log(`Found ${rows.length} bookings`);
 
     for (const row of rows) {
-        const [existing] = await localDb.execute(
-            `SELECT id FROM bookings WHERE id = ?`, [row.id]
-        );
-
-        if (existing.length === 0) {
-            await localDb.execute(`
-                INSERT INTO bookings
-                (id, visitor_name, visitor_email, visitor_phone,
-                 booking_date, booking_time, visitor_count,
-                 scheme_name, special_requests, status, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            `, [
-                row.id, row.visitor_name, row.visitor_email,
-                row.visitor_phone, row.booking_date, row.booking_time,
-                row.visitor_count, row.scheme_name, row.special_requests,
-                row.status, row.created_at
-            ]);
-            console.log(`✅ Synced booking ID ${row.id}`);
+        try {
+            await axios.post(process.env.POWER_AUTOMATE_BOOKINGS_URL, {
+                table: 'bookings',
+                data: row
+            }, {
+                httpsAgent: agent
+            });
+            console.log(`✅ Sent booking ID ${row.id}`);
+        } catch (err) {
+            console.error(`❌ Failed booking ID ${row.id}:`, err.message);
         }
     }
 
-    console.log('Bookings sync completed.');
     await railwayDb.end();
-    await localDb.end();
+    console.log('Bookings sync completed.');
 }
 
 // ─── Sync Schemes ────────────────────────────────────────────────
 async function syncSchemes() {
     const railwayDb = await mysql.createConnection(railwayConfig);
-    const localDb = await mysql.createConnection(localConfig);
-
     console.log('Schemes sync started...');
 
     const [rows] = await railwayDb.execute(`SELECT * FROM schemes`);
+    console.log(`Found ${rows.length} schemes`);
 
     for (const row of rows) {
-        const [existing] = await localDb.execute(
-            `SELECT id FROM schemes WHERE id = ?`, [row.id]
-        );
-
-        if (existing.length === 0) {
-            await localDb.execute(`
-                INSERT INTO schemes
-                (id, name, address, price, viewing_rules, description, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            `, [
-                row.id, row.name, row.address, row.price,
-                row.viewing_rules, row.description, row.created_at
-            ]);
-            console.log(`✅ Synced scheme ID ${row.id}`);
+        try {
+            await axios.post(process.env.POWER_AUTOMATE_SCHEMES_URL, {
+                table: 'schemes',
+                data: {
+                    ...row,
+                    id: String(row.id),
+                    price: String(row.price)
+                }
+            }, {
+                httpsAgent: agent
+            });
+            console.log(`✅ Sent scheme ID ${row.id}`);
+        } catch (err) {
+            console.error(`❌ Failed scheme ID ${row.id}:`, err.message);
         }
     }
 
-    console.log('Schemes sync completed.');
     await railwayDb.end();
-    await localDb.end();
+    console.log('Schemes sync completed.');
 }
 
-// ─── Cron: Run Every 1 Minute ────────────────────────────────────
-cron.schedule('* * * * *', async () => {
-    await syncBookings().catch(console.error);
-    await syncSchemes().catch(console.error);
-});
-
-console.log('🚀 Auto-sync service started (bookings + schemes)...');
+module.exports = { syncBookings, syncSchemes };

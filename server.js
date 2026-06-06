@@ -1,8 +1,9 @@
-cat > /mnt/user - data / outputs / server.js << 'ENDOFFILE'
 const express = require('express');
 const cors = require('cors');
+const axios = require('axios');
 const path = require('path');
 const db = require('./db');
+const { syncBookings, syncSchemes } = require('./sync');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -126,13 +127,10 @@ app.get('/api/stats', async (req, res) => {
 /**
  * GET /api/schemes
  * Retrieves all registered property viewing schemes.
- * FIX: Always returns { data: [], sqlQuery: '', engine: '' } shape —
- * never a bare error object — so frontend never crashes on undefined .data
  */
 app.get('/api/schemes', async (req, res) => {
     try {
         const result = await db.getAllSchemes();
-        // Guarantee the response always has a 'data' array
         res.json({
             data: result.data || [],
             sqlQuery: result.sqlQuery || '',
@@ -140,9 +138,6 @@ app.get('/api/schemes', async (req, res) => {
         });
     } catch (err) {
         console.error('GET /api/schemes error:', err.message);
-        // FIX: Return a safe empty response instead of a bare 500 error object.
-        // A bare 500 causes refreshSchemes() to throw because schemesRes.data is undefined.
-        // Now the frontend always receives a valid { data: [] } and renders "no schemes" gracefully.
         res.status(500).json({
             data: [],
             sqlQuery: '',
@@ -178,6 +173,36 @@ app.post('/api/schemes', async (req, res) => {
             return res.status(409).json({ error: err.message });
         }
         res.status(500).json({ error: 'Failed to create scheme', details: err.message });
+    }
+});
+
+// -------------------------------------------------------------
+// Sync API Endpoints - Railway DB to SharePoint
+// -------------------------------------------------------------
+
+/**
+ * POST /api/sync/bookings
+ * Manually triggers Railway → SharePoint bookings sync
+ */
+app.post('/api/sync/bookings', async (req, res) => {
+    try {
+        await syncBookings();
+        res.json({ success: true, message: 'Bookings synced to SharePoint successfully' });
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+/**
+ * POST /api/sync/schemes
+ * Manually triggers Railway → SharePoint schemes sync
+ */
+app.post('/api/sync/schemes', async (req, res) => {
+    try {
+        await syncSchemes();
+        res.json({ success: true, message: 'Schemes synced to SharePoint successfully' });
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
     }
 });
 
