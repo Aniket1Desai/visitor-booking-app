@@ -25,6 +25,11 @@ async function syncBookings() {
 
     for (const row of rows) {
         try {
+            // Skip records with empty or zero booking_date
+            if (!row.booking_date || row.booking_date === '0000-00-00') {
+                console.log(`⚠️ Skipped booking ID ${row.id} - invalid booking_date`);
+                continue;
+            }
             await axios.post(process.env.POWER_AUTOMATE_BOOKINGS_URL, {
                 table: 'bookings',
                 data: row
