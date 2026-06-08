@@ -3,7 +3,7 @@ const mysql = require('mysql2/promise');
 const axios = require('axios');
 const https = require('https');
 
-// ─── SSL Agent (fixes Power Automate certificate issue) ──────────
+// ─── SSL Agent ───────────────────────────────────────────────────
 const agent = new https.Agent({ rejectUnauthorized: false });
 
 // ─── Railway DB Config ───────────────────────────────────────────
@@ -15,6 +15,20 @@ const railwayConfig = {
     port: parseInt(process.env.RAILWAY_PORT)
 };
 
+// ─── Safe date helper ────────────────────────────────────────────
+function toDateStr(val) {
+    if (!val) return null;
+    try {
+        const d = new Date(val);
+        if (isNaN(d.getTime())) return null;   // catches Invalid Date
+        const iso = d.toISOString().split('T')[0];
+        if (iso === '0000-00-00') return null;
+        return iso;
+    } catch {
+        return null;
+    }
+}
+
 // ─── Sync Bookings ───────────────────────────────────────────────
 async function syncBookings() {
     const railwayDb = await mysql.createConnection(railwayConfig);
@@ -25,17 +39,17 @@ async function syncBookings() {
 
     for (const row of rows) {
         try {
-            // Skip records with empty or zero booking_date
-            if (!row.booking_date || row.booking_date === '0000-00-00') {
-                console.log(`⚠️ Skipped booking ID ${row.id} - invalid booking_date`);
+            const dateStr = toDateStr(row.booking_date);
+            if (!dateStr) {
+                console.log(`⚠️ Skipped booking ID ${row.id} - invalid booking_date:`, row.booking_date);
                 continue;
             }
+
             await axios.post(process.env.POWER_AUTOMATE_BOOKINGS_URL, {
                 table: 'bookings',
-                data: row
-            }, {
-                httpsAgent: agent
-            });
+                data: { ...row, booking_date: dateStr }
+            }, { httpsAgent: agent });
+
             console.log(`✅ Sent booking ID ${row.id}`);
         } catch (err) {
             console.error(`❌ Failed booking ID ${row.id}:`, err.message);
@@ -63,9 +77,8 @@ async function syncSchemes() {
                     id: String(row.id),
                     price: String(row.price)
                 }
-            }, {
-                httpsAgent: agent
-            });
+            }, { httpsAgent: agent });
+
             console.log(`✅ Sent scheme ID ${row.id}`);
         } catch (err) {
             console.error(`❌ Failed scheme ID ${row.id}:`, err.message);
