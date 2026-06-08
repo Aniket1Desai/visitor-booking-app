@@ -47,7 +47,7 @@ async function syncBookings() {
 
             await axios.post(process.env.POWER_AUTOMATE_BOOKINGS_URL, {
                 table: 'bookings',
-                data: { ...row, booking_date: dateStr }
+                data: { ...row, booking_date: dateStr, special_requests: row.special_requests ?? '' }
             }, { httpsAgent: agent });
 
             console.log(`✅ Sent booking ID ${row.id}`);

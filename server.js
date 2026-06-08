@@ -37,7 +37,8 @@ app.get('/api/bookings', async (req, res) => {
  * Creates a new house viewing booking mapped to a scheme
  */
 app.post('/api/bookings', async (req, res) => {
-    const { visitor_name, visitor_email, visitor_phone, booking_date, booking_time, visitor_count, scheme_name, special_requests } = req.body;
+    const { visitor_name, visitor_email, visitor_phone, booking_time, visitor_count, scheme_name, special_requests } = req.body;
+    const booking_date = req.body.booking_date || new Date().toISOString().split('T')[0];
 
     if (!visitor_name || !visitor_email || !visitor_phone || !booking_date || !booking_time || !scheme_name) {
         return res.status(400).json({ error: 'Missing required booking fields (name, email, phone, date, time, scheme_name)' });
@@ -54,6 +55,8 @@ app.post('/api/bookings', async (req, res) => {
             scheme_name,
             special_requests
         });
+        syncBookings().catch(err => console.error('Auto booking sync failed:', err.message));
+
         res.status(201).json(result);
     } catch (err) {
         if (err.message.includes('already booked')) {
@@ -167,6 +170,8 @@ app.post('/api/schemes', async (req, res) => {
             viewing_rules,
             description
         });
+        syncSchemes().catch(err => console.error('Auto scheme sync failed:', err.message));
+
         res.status(201).json(result);
     } catch (err) {
         if (err.message.includes('already exists')) {
